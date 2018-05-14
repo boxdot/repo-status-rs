@@ -67,7 +67,9 @@ impl fmt::Display for GitStatus {
             '-'
         };
         let worktree_flag = if st.contains(Status::WT_NEW) {
-            '-'
+            'a'
+        } else if st.contains(Status::WT_MODIFIED) {
+            'm'
         } else if st.contains(Status::WT_DELETED) {
             'd'
         } else if st.contains(Status::WT_TYPECHANGE) {
