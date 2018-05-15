@@ -1,14 +1,16 @@
 extern crate colored;
 extern crate git2;
+extern crate itertools;
 extern crate xml;
 
 use colored::*;
 use git2::{Repository, Status};
 use xml::reader::{EventReader, XmlEvent};
 
+use itertools::Itertools;
 use std::env;
 use std::error::Error;
-use std::fmt::{self, Write};
+use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -86,8 +88,8 @@ impl fmt::Display for GitStatus {
 fn main() -> Result<(), Box<Error>> {
     let index_change: Status =
         Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED | Status::INDEX_RENAMED;
-    let worktree_change =
-        Status::WT_NEW | Status::WT_DELETED | Status::WT_TYPECHANGE | Status::WT_RENAMED;
+    let worktree_change = Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED
+        | Status::WT_TYPECHANGE | Status::WT_RENAMED;
 
     let repo_root = match find_repo_root() {
         Some(p) => p,
@@ -96,24 +98,24 @@ fn main() -> Result<(), Box<Error>> {
 
     for path in projects(&repo_root.join(".repo/manifest.xml")) {
         let repo = Repository::init(repo_root.join(&path))?;
-        let statuses = repo.statuses(None)?;
-        if !statuses.is_empty() {
-            println!("project {}/", path.bold());
-            for status in statuses.iter() {
-                let mut buf = String::new();
-                let st = status.status();
-                writeln!(
-                    &mut buf,
-                    " {}     {}",
-                    GitStatus(st),
-                    status.path().unwrap()
-                )?;
-                if st.intersects(index_change) && !st.contains(worktree_change) {
-                    print!("{}", buf.green());
-                } else {
-                    print!("{}", buf.red());
+        let statuses = repo.statuses(None)?
+            .iter()
+            .filter_map(|status| {
+                if !status.status().intersects(index_change | worktree_change) {
+                    return None;
                 }
-            }
+
+                let st = status.status();
+                let line = format!(" {}     {}", GitStatus(st), status.path().unwrap());
+                if st.intersects(index_change) && !st.contains(worktree_change) {
+                    Some(line.green())
+                } else {
+                    Some(line.red())
+                }
+            })
+            .join(",");
+        if !statuses.is_empty() {
+            println!("project {}/\n{}", path.bold(), statuses);
         }
     }
     Ok(())

@@ -6,4 +6,5 @@ authors = ["boxdot <d@zerovolt.org>"]
 [dependencies]
 colored = "1.6"
 git2 = "0.7"
+itertools = "0.7"
 xml-rs = "0.7"
