@@ -1,32 +1,55 @@
 extern crate colored;
+#[macro_use]
+extern crate failure;
 extern crate git2;
 extern crate itertools;
 extern crate xml;
 
 use colored::*;
+use failure::Error;
 use git2::{Repository, Status};
+use itertools::Itertools;
 use xml::reader::{EventReader, XmlEvent};
 
-use itertools::Itertools;
 use std::env;
-use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-fn find_repo_root() -> Option<PathBuf> {
-    let mut path = env::current_dir().ok()?;
+#[derive(Debug, Fail)]
+enum RepoStatusError {
+    #[fail(display = "Repo not found in current directory.")]
+    RepoRootNotFound,
+    #[fail(display = "Manifest does not exists at: {}", path)]
+    ManifestDoesNotExists { path: String },
+    #[fail(display = "Invalid utf8")]
+    InvalidUtf8,
+}
+
+fn find_repo_root() -> Result<PathBuf, Error> {
+    let mut path = env::current_dir()?;
     loop {
         let repo_path = path.join(".repo");
         if repo_path.exists() && repo_path.is_dir() {
-            return Some(path);
+            return Ok(path);
         }
-        path = PathBuf::from(path.parent()?);
+        path = PathBuf::from(path.parent().ok_or(RepoStatusError::RepoRootNotFound)?);
     }
 }
 
-fn projects(manifest: &Path) -> impl Iterator<Item = String> {
+fn find_manifest(repo_root: &Path) -> Result<PathBuf, Error> {
+    let manifest = repo_root.join(".repo/manifest.xml");
+    if manifest.exists() {
+        Ok(manifest)
+    } else {
+        Err(RepoStatusError::ManifestDoesNotExists {
+            path: String::from(manifest.to_str().ok_or(RepoStatusError::InvalidUtf8)?),
+        }.into())
+    }
+}
+
+fn get_projects(manifest: &Path) -> impl Iterator<Item = Result<String, xml::reader::Error>> {
     let file = File::open(manifest).unwrap();
     let file = BufReader::new(file);
 
@@ -37,17 +60,14 @@ fn projects(manifest: &Path) -> impl Iterator<Item = String> {
         }) => if name.local_name == "project" {
             for attr in attributes {
                 if attr.name.local_name == "path" {
-                    return Some(attr.value);
+                    return Some(Ok(attr.value));
                 }
             }
             None
         } else {
             None
         },
-        Err(e) => {
-            // TODO: stop gracefully
-            panic!("Error: {}", e);
-        }
+        Err(e) => Some(Err(e)),
         _ => None,
     })
 }
@@ -85,18 +105,17 @@ impl fmt::Display for GitStatus {
     }
 }
 
-fn main() -> Result<(), Box<Error>> {
+fn run() -> Result<(), Error> {
     let index_change: Status =
         Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED | Status::INDEX_RENAMED;
     let worktree_change = Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED
         | Status::WT_TYPECHANGE | Status::WT_RENAMED;
 
-    let repo_root = match find_repo_root() {
-        Some(p) => p,
-        None => panic!("Cannot find root of repo."),
-    };
+    let repo_root = find_repo_root()?;
+    let manifest = find_manifest(&repo_root)?;
 
-    for path in projects(&repo_root.join(".repo/manifest.xml")) {
+    for path in get_projects(&manifest) {
+        let path = path?;
         let repo = Repository::init(repo_root.join(&path))?;
         let statuses = repo.statuses(None)?
             .iter()
@@ -119,4 +138,11 @@ fn main() -> Result<(), Box<Error>> {
         }
     }
     Ok(())
+}
+
+fn main() {
+    if let Err(e) = run() {
+        println!("{} {}", "Error:".red(), e);
+        std::process::exit(1);
+    }
 }
