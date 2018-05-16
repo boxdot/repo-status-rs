@@ -21,7 +21,6 @@ use itertools::Itertools;
 
 use std::env;
 use std::fmt;
-use std::io::ErrorKind::NotFound;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -99,7 +98,7 @@ fn get_status(repo_root: PathBuf, project: Project) -> Result<String, Error> {
     let worktree_change = Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED
         | Status::WT_TYPECHANGE | Status::WT_RENAMED;
 
-    let project_path = &project.path.unwrap_or(project.name);
+    let project_path = project.path.unwrap_or(project.name);
     let repo = Repository::init(repo_root.join(&project_path))?;
     let mut options = git2::StatusOptions::new();
     options.include_ignored(false);
@@ -126,27 +125,21 @@ fn get_status(repo_root: PathBuf, project: Project) -> Result<String, Error> {
     }
 }
 
+fn launch_repo() -> Result<i32, Error> {
+    // When arguments are not parseable, forward everything to the original repo command
+    // TODO: make sure if this target is also named 'repo' that we don't do anything recursive (fork bomb).
+    let return_code = Command::new("repo")
+        .args(env::args_os().skip(1))
+        .status()?
+        .code()
+        .ok_or(format_err!("repo subprocess exited without a return code."))?;
+    ::std::process::exit(return_code);
+}
+
 fn run() -> Result<(), Error> {
     let matches = App::new("repo")
-        .subcommand(SubCommand::with_name("status").help("Sets the input file to use"))
-        .get_matches_safe()
-        .unwrap_or_else(|e| {
-            println!("{:?}", e);
-            // When arguments are not parseable, forward everything to the original repo command
-            // TODO: make sure if this target is also named 'repo' that we don't do anything recursive (fork bomb).
-            let repo_return_code = Command::new("repo")
-                .args(env::args_os().skip(1))
-                .status()
-                .map_err(|e| {
-                    if let NotFound = e.kind() {
-                        println!("`repo` was not found! Check your PATH!");
-                    } else {
-                        println!("Some strange error occurred :(");
-                    }
-                })
-                .unwrap();
-            ::std::process::exit(repo_return_code.code().unwrap());
-        });
+        .subcommand(SubCommand::with_name("status").help("Compares the working tree to the staging area (index) and the most recent commit on this branch (HEAD) in all"))
+        .get_matches_safe().map_err(|_| launch_repo()).unwrap();
 
     if let Some(_matches) = matches.subcommand_matches("status") {
         let repo_root = find_repo_root()?;
