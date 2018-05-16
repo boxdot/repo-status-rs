@@ -5,7 +5,10 @@ extern crate failure;
 extern crate futures;
 extern crate git2;
 extern crate itertools;
-extern crate xml;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate serde_xml_rs;
 
 use clap::{App, SubCommand};
 use colored::*;
@@ -15,16 +18,15 @@ use futures::future;
 use futures::prelude::*;
 use git2::{Repository, Status};
 use itertools::Itertools;
-use xml::reader::{EventReader, XmlEvent};
 
 use std::env;
 use std::fmt;
-use std::fs::File;
-
-use std::io::BufReader;
 use std::io::ErrorKind::NotFound;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+mod manifest;
+use manifest::{Manifest, Project};
 
 #[derive(Debug, Fail)]
 enum RepoStatusError {
@@ -56,29 +58,6 @@ fn find_manifest(repo_root: &Path) -> Result<PathBuf, Error> {
             path: String::from(manifest.to_str().ok_or(RepoStatusError::InvalidUtf8)?),
         }.into())
     }
-}
-
-fn get_projects(manifest: &Path) -> impl Iterator<Item = Result<String, xml::reader::Error>> {
-    let file = File::open(manifest).unwrap();
-    let file = BufReader::new(file);
-
-    let parser = EventReader::new(file);
-    parser.into_iter().filter_map(|e| match e {
-        Ok(XmlEvent::StartElement {
-            name, attributes, ..
-        }) => if name.local_name == "project" {
-            for attr in attributes {
-                if attr.name.local_name == "path" {
-                    return Some(Ok(attr.value));
-                }
-            }
-            None
-        } else {
-            None
-        },
-        Err(e) => Some(Err(e)),
-        _ => None,
-    })
 }
 
 struct GitStatus(Status);
@@ -114,13 +93,14 @@ impl fmt::Display for GitStatus {
     }
 }
 
-fn get_status(repo_root: PathBuf, path: String) -> Result<String, Error> {
+fn get_status(repo_root: PathBuf, project: Project) -> Result<String, Error> {
     let index_change: Status =
         Status::INDEX_NEW | Status::INDEX_MODIFIED | Status::INDEX_DELETED | Status::INDEX_RENAMED;
     let worktree_change = Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED
         | Status::WT_TYPECHANGE | Status::WT_RENAMED;
 
-    let repo = Repository::init(repo_root.join(&path))?;
+    let project_path = &project.path.unwrap_or(project.name);
+    let repo = Repository::init(repo_root.join(&project_path))?;
     let mut options = git2::StatusOptions::new();
     options.include_ignored(false);
     let statuses = repo.statuses(Some(&mut options))?
@@ -140,7 +120,7 @@ fn get_status(repo_root: PathBuf, path: String) -> Result<String, Error> {
         })
         .join("\n");
     if !statuses.is_empty() {
-        Ok(format!("project {}/\n{}", path.bold(), statuses))
+        Ok(format!("project {}/\n{}", project_path.bold(), statuses))
     } else {
         Ok(String::new())
     }
@@ -170,13 +150,17 @@ fn run() -> Result<(), Error> {
 
     if let Some(_matches) = matches.subcommand_matches("status") {
         let repo_root = find_repo_root()?;
-        let manifest = find_manifest(&repo_root)?;
+        let manifest_path = find_manifest(&repo_root)?;
 
-        let fut_output = future::join_all(get_projects(&manifest).map(move |path| {
-            let repo_root = repo_root.clone();
-            future::result(path.map_err(Error::from))
-                .and_then(move |path| get_status(repo_root.clone(), path))
-        })).and_then(|outputs: Vec<String>| {
+        let fut_output = future::join_all(
+            Manifest::from_path(&manifest_path)?
+                .projects
+                .into_iter()
+                .map(move |project| {
+                    let repo_root = repo_root.clone();
+                    future::result(get_status(repo_root.clone(), project))
+                }),
+        ).and_then(|outputs: Vec<String>| {
             Ok(println!(
                 "{}",
                 outputs
