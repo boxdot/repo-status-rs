@@ -29,12 +29,10 @@ use manifest::{Manifest, Project};
 
 #[derive(Debug, Fail)]
 enum RepoStatusError {
-    #[fail(display = "Repo not found in current directory.")]
+    #[fail(display = ".repo not found in the directory tree.")]
     RepoRootNotFound,
-    #[fail(display = "Manifest does not exists at: {}", path)]
+    #[fail(display = "manifest does not exists at: {}", path)]
     ManifestDoesNotExists { path: String },
-    #[fail(display = "Invalid utf8")]
-    InvalidUtf8,
 }
 
 fn find_repo_root() -> Result<PathBuf, Error> {
@@ -54,7 +52,7 @@ fn find_manifest(repo_root: &Path) -> Result<PathBuf, Error> {
         Ok(manifest)
     } else {
         Err(RepoStatusError::ManifestDoesNotExists {
-            path: String::from(manifest.to_str().ok_or(RepoStatusError::InvalidUtf8)?),
+            path: String::from(manifest.to_string_lossy()),
         }.into())
     }
 }
