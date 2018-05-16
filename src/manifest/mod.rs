@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+pub mod project;
+
 #[derive(Deserialize, Debug)]
 pub struct Manifest {
     #[serde(rename = "remote", default)]
@@ -13,7 +15,7 @@ pub struct Manifest {
     #[serde(rename = "default", default)]
     pub defaults: Vec<Default>,
     #[serde(rename = "project", default)]
-    pub projects: Vec<Project>,
+    pub projects: Vec<project::Project>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -27,14 +29,6 @@ pub struct Remote {
     pub name: String,
     pub fetch: String,
     pub review: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Project {
-    pub name: String,
-    pub path: Option<String>,
-    pub groups: Option<String>,
-    pub revision: Option<String>,
 }
 
 impl Manifest {
