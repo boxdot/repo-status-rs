@@ -34,8 +34,8 @@ pub struct Remote {
 
 #[derive(Debug, Fail)]
 enum ManifestError {
-    #[fail(display = "manifest does not exists at: {}", path)]
-    ManifestDoesNotExists { path: String },
+    #[fail(display = "manifest does not exist at: {}", path)]
+    ManifestDoesNotExist { path: String },
 }
 
 impl Manifest {
@@ -46,7 +46,7 @@ impl Manifest {
     fn from_path(path: &Path) -> Result<Manifest, Error> {
         let manifest_path = path.join(".repo/manifest.xml");
         if !manifest_path.exists() {
-            return Err(ManifestError::ManifestDoesNotExists {
+            return Err(ManifestError::ManifestDoesNotExist {
                 path: String::from(path.to_string_lossy()),
             }.into());
         }
