@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["boxdot <d@zerovolt.org>"]
 
 [dependencies]
+clap = "2"
 colored = "1.6"
 failure = "0.1"
 futures = "0.2"

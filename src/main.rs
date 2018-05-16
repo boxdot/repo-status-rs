@@ -1,3 +1,4 @@
+extern crate clap;
 extern crate colored;
 #[macro_use]
 extern crate failure;
@@ -6,6 +7,7 @@ extern crate git2;
 extern crate itertools;
 extern crate xml;
 
+use clap::{App, SubCommand};
 use colored::*;
 use failure::Error;
 use futures::executor::ThreadPool;
@@ -18,8 +20,11 @@ use xml::reader::{EventReader, XmlEvent};
 use std::env;
 use std::fmt;
 use std::fs::File;
+
 use std::io::BufReader;
+use std::io::ErrorKind::NotFound;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Fail)]
 enum RepoStatusError {
@@ -142,26 +147,51 @@ fn get_status(repo_root: PathBuf, path: String) -> Result<String, Error> {
 }
 
 fn run() -> Result<(), Error> {
-    let repo_root = find_repo_root()?;
-    let manifest = find_manifest(&repo_root)?;
+    let matches = App::new("repo")
+        .subcommand(SubCommand::with_name("status").help("Sets the input file to use"))
+        .get_matches_safe()
+        .unwrap_or_else(|e| {
+            println!("{:?}", e);
+            // When arguments are not parseable, forward everything to the original repo command
+            // TODO: make sure if this target is also named 'repo' that we don't do anything recursive (fork bomb).
+            let repo_return_code = Command::new("repo")
+                .args(env::args_os().skip(1))
+                .status()
+                .map_err(|e| {
+                    if let NotFound = e.kind() {
+                        println!("`repo` was not found! Check your PATH!");
+                    } else {
+                        println!("Some strange error occurred :(");
+                    }
+                })
+                .unwrap();
+            ::std::process::exit(repo_return_code.code().unwrap());
+        });
 
-    let fut_output = future::join_all(get_projects(&manifest).map(move |path| {
-        let repo_root = repo_root.clone();
-        future::result(path.map_err(Error::from))
-            .and_then(move |path| get_status(repo_root.clone(), path))
-    })).and_then(|outputs: Vec<String>| {
-        Ok(println!(
-            "{}",
-            outputs
-                .into_iter()
-                .filter(|line| !line.is_empty())
-                .join("\n")
-        ))
-    });
+    if let Some(_matches) = matches.subcommand_matches("status") {
+        let repo_root = find_repo_root()?;
+        let manifest = find_manifest(&repo_root)?;
 
-    ThreadPool::new()
-        .expect("Failed to create threadpool")
-        .run(fut_output)
+        let fut_output = future::join_all(get_projects(&manifest).map(move |path| {
+            let repo_root = repo_root.clone();
+            future::result(path.map_err(Error::from))
+                .and_then(move |path| get_status(repo_root.clone(), path))
+        })).and_then(|outputs: Vec<String>| {
+            Ok(println!(
+                "{}",
+                outputs
+                    .into_iter()
+                    .filter(|line| !line.is_empty())
+                    .join("\n")
+            ))
+        });
+
+        ThreadPool::new()
+            .expect("Failed to create threadpool")
+            .run(fut_output)
+    } else {
+        Ok(())
+    }
 }
 
 fn main() {
