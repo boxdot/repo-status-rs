@@ -1,4 +1,4 @@
-# repo-status
+# repo-status [![Build Status](https://travis-ci.com/boxdot/repo-status-rs.svg?branch=master)](https://travis-ci.com/boxdot/repo-status-rs)
 
 Minimal and fast implementation of `repo status` in Rust.
 
