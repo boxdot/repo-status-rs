@@ -11,7 +11,7 @@ extern crate serde;
 extern crate serde_xml_rs;
 
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use clap::{App, SubCommand};
@@ -26,11 +26,9 @@ mod manifest;
 use manifest::Manifest;
 
 #[derive(Debug, Fail)]
-enum RepoStatusError {
+enum RepoError {
     #[fail(display = ".repo not found in the directory tree.")]
     RepoRootNotFound,
-    #[fail(display = "manifest does not exists at: {}", path)]
-    ManifestDoesNotExists { path: String },
 }
 
 fn find_repo_root() -> Result<PathBuf, Error> {
@@ -40,18 +38,7 @@ fn find_repo_root() -> Result<PathBuf, Error> {
         if repo_path.exists() && repo_path.is_dir() {
             return Ok(path);
         }
-        path = PathBuf::from(path.parent().ok_or(RepoStatusError::RepoRootNotFound)?);
-    }
-}
-
-fn find_manifest(repo_root: &Path) -> Result<PathBuf, Error> {
-    let manifest = repo_root.join(".repo/manifest.xml");
-    if manifest.exists() {
-        Ok(manifest)
-    } else {
-        Err(RepoStatusError::ManifestDoesNotExists {
-            path: String::from(manifest.to_string_lossy()),
-        }.into())
+        path = PathBuf::from(path.parent().ok_or(RepoError::RepoRootNotFound)?);
     }
 }
 
@@ -72,16 +59,13 @@ fn run() -> Result<(), Error> {
 
     if let Some(_matches) = matches.subcommand_matches("status") {
         let repo_root = find_repo_root()?;
-        let manifest_path = find_manifest(&repo_root)?;
-
+        env::set_current_dir(repo_root)?;
+        let manifest = Manifest::from_current_dir()?;
         let fut_output = future::join_all(
-            Manifest::from_path(&manifest_path)?
+            manifest
                 .projects
                 .into_iter()
-                .map(move |project| {
-                    let repo_root = repo_root.clone();
-                    future::result(project.get_status(repo_root.clone()))
-                }),
+                .map(move |project| future::result(project.get_status())),
         ).and_then(|outputs: Vec<String>| {
             Ok(println!(
                 "{}",

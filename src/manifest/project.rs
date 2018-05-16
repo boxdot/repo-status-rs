@@ -1,5 +1,4 @@
 use std::fmt;
-use std::path::PathBuf;
 
 use colored::*;
 use failure::Error;
@@ -49,14 +48,14 @@ impl fmt::Display for GitStatus {
 }
 
 impl Project {
-    pub fn get_status(self, repo_root: PathBuf) -> Result<String, Error> {
+    pub fn get_status(self) -> Result<String, Error> {
         let index_change: Status = Status::INDEX_NEW | Status::INDEX_MODIFIED
             | Status::INDEX_DELETED | Status::INDEX_RENAMED;
         let worktree_change = Status::WT_NEW | Status::WT_MODIFIED | Status::WT_DELETED
             | Status::WT_TYPECHANGE | Status::WT_RENAMED;
 
         let project_path = self.path.unwrap_or(self.name);
-        let repo = Repository::init(repo_root.join(&project_path))?;
+        let repo = Repository::init(&project_path)?;
         let mut options = git2::StatusOptions::new();
         options.include_ignored(false);
         let statuses = repo.statuses(Some(&mut options))?
